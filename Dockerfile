@@ -1,24 +1,31 @@
-FROM ubuntu:20.10 as builder
-RUN apt update && apt install -y curl git unzip xz-utils zip libglu1-mesa openjdk-8-jdk wget
-RUN useradd -ms /bin/bash user
-USER user
-WORKDIR /home/user
-EXPOSE 80
+#Stage 1 - Install dependencies and build the app
+FROM debian:latest AS build-env
 
-#Installing Android SDK
-RUN mkdir -p Android/sdk
-ENV ANDROID_SDK_ROOT /home/user/Android/sdk
-RUN mkdir -p .android && touch .android/repositories.cfg
-RUN wget -O sdk-tools.zip https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip
-RUN unzip sdk-tools.zip && rm sdk-tools.zip
-RUN mv tools Android/sdk/tools
-RUN cd Android/sdk/tools/bin && yes | ./sdkmanager --licenses
-RUN cd Android/sdk/tools/bin && ./sdkmanager "build-tools;29.0.2" "patcher;v4" "platform-tools" "platforms;android-29" "sources;android-29"
-ENV PATH "$PATH:/home/user/Android/sdk/platform-tools"
+# Install flutter dependencies
+RUN apt-get update 
+RUN apt-get install -y curl git wget unzip libgconf-2-4 gdb libstdc++6 libglu1-mesa fonts-droid-fallback lib32stdc++6 python3
+RUN apt-get clean
 
-#Installing Flutter SDK
-RUN git clone https://github.com/flutter/flutter.git
-ENV PATH "$PATH:/home/user/flutter/bin"
-RUN flutter channel dev
+# Clone the flutter repo
+RUN git clone https://github.com/flutter/flutter.git /usr/local/flutter
+
+# Set flutter path
+# RUN /usr/local/flutter/bin/flutter doctor -v
+ENV PATH="/usr/local/flutter/bin:/usr/local/flutter/bin/cache/dart-sdk/bin:${PATH}"
+
+# Run flutter doctor
+RUN flutter doctor -v
+# Enable flutter web
+RUN flutter channel master
 RUN flutter upgrade
-RUN flutter doctor
+RUN flutter config --enable-web
+
+# Copy files to container and build
+RUN mkdir /app/
+COPY . /app/
+WORKDIR /app/
+RUN flutter build web
+
+# Stage 2 - Create the run-time image
+FROM nginx:1.21.1-alpine
+COPY --from=build-env /app/build/web /usr/share/nginx/html
